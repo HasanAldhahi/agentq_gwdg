@@ -213,7 +213,7 @@ class AgentQActorInput(BaseModel):
 
 class AgentQActorOutput(BaseModel):
     thought: str
-    proposed_tasks: Optional[List[TaskWithActions]]
+    proposed_tasks: Optional[List[str]]  # Changed to List[str] for smolagents
     is_complete: bool
     final_response: Optional[str]
 
@@ -221,15 +221,15 @@ class AgentQActorOutput(BaseModel):
 # Critic
 class AgentQCriticInput(BaseModel):
     objective: str
-    completed_tasks: Optional[List[TaskWithActions]]
-    tasks_for_eval: List[TaskWithActions]
+    completed_tasks: Optional[List[str]]  # Changed to List[str] for smolagents
+    tasks_for_eval: List[str]  # Changed to List[str] for smolagents
     current_page_url: str
     current_page_dom: str
 
 
 class AgentQCriticOutput(BaseModel):
     thought: str
-    top_task: TaskWithActions
+    top_task: str  # Changed to str for smolagents
 
 
 # Vision
@@ -266,7 +266,7 @@ class BrowserState(BaseModel):
     dom: str
     url: str
     objective: str
-    completed_tasks: Optional[List[TaskWithActions]]
+    completed_tasks: Optional[List[str]]  # Changed to List[str] for smolagents
 
 
 class BrowserAction(BaseModel):

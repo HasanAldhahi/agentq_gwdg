@@ -11,6 +11,7 @@ from agentq.core.agent.agentq_actor import AgentQActor
 from agentq.core.agent.agentq_critic import AgentQCritic
 from agentq.core.agent.base import BaseAgent
 from agentq.core.agent.vision_agent import VisionAgent
+from agentq.core.agent.smol_executor_agent import execute_sub_task
 from agentq.core.mcts.core.base import Reasoner, SearchConfig, WorldModel
 from agentq.core.mcts.core.mcts import MCTS, MCTSResult
 from agentq.core.mcts.visualization.visualizer_client import visualize
@@ -20,12 +21,10 @@ from agentq.core.models.models import (
     AgentQActorOutput,
     AgentQCriticInput,
     AgentQCriticOutput,
-    BrowserAction,
     BrowserState,
     DPOAction,
     DPOPair,
     DPOState,
-    TaskWithActions,
     VisionInput,
     VisionOutput,
 )
@@ -49,7 +48,7 @@ RESET = "\033[0m"
 
 
 @traceable(run_type="chain", name="mcts")
-class BrowserWorldModel(WorldModel[BrowserState, BrowserAction, str]):
+class BrowserWorldModel(WorldModel[BrowserState, str, str]):
     def __init__(self, objective: str, vision: BaseAgent) -> None:
         super().__init__()
         self.objective = objective
@@ -77,60 +76,15 @@ class BrowserWorldModel(WorldModel[BrowserState, BrowserAction, str]):
         )
 
     async def step(
-        self, state: BrowserState, browser_action: BrowserAction
+        self, state: BrowserState, sub_task: str
     ) -> Tuple[BrowserState, dict]:
-        print(f"{YELLOW}[DEBUG] Executing step with action: {browser_action}{RESET}")
-        new_dom, new_url = await self.execute_browser_action(browser_action)
-        current_task = browser_action.task_with_action
-        new_completed_tasks = state.completed_tasks + [current_task]
-        new_state = BrowserState(
-            dom=new_dom,
-            url=new_url,
-            objective=state.objective,
-            completed_tasks=new_completed_tasks,
-        )
-        print(f"{GREEN}[DEBUG] New state after step - URL: {new_url}{RESET}")
-        return new_state, {}
+        print(f"{YELLOW}[DEBUG] Executing sub-task with smol_executor: {sub_task}{RESET}")
+        
+        # Execute the sub-task using smolagents
+        execution_result = await execute_sub_task(sub_task)
+        print(f"{CYAN}[DEBUG] smol_executor finished. Result: {execution_result}{RESET}")
 
-    async def is_terminal(self, state: BrowserState) -> bool:
-        terminal = await is_terminal(state, self.vision)
-        print(f"{CYAN}[DEBUG] is_terminal: {terminal}{RESET}")
-        return terminal
-
-    async def execute_browser_action(
-        self, browser_action: BrowserAction
-    ) -> Tuple[str, str]:
-        action = browser_action.task_with_action.actions_to_be_performed[0]
-        print(f"{YELLOW}[DEBUG] Executing browser action: {action.type}{RESET}")
-
-        if action.type == ActionType.GOTO_URL:
-            print(f"{CYAN}[DEBUG] Trying to go to url{RESET}")
-            await openurl(url=action.website, timeout=action.timeout or 1)
-            print(f"{CYAN}[DEBUG] Went to url{RESET}")
-        elif action.type == ActionType.TYPE:
-            entry = EnterTextEntry(
-                query_selector=f"[mmid='{action.mmid}']",
-                text=action.content,
-            )
-            await entertext(entry)
-            # await wait_for_navigation()
-            print(f"{CYAN}[DEBUG] Typed text into element{RESET}")
-        elif action.type == ActionType.CLICK:
-            await click(
-                selector=f"[mmid='{action.mmid}']",
-                wait_before_execution=action.wait_before_execution or 2,
-            )
-            print(f"{CYAN}[DEBUG] Clicked element{RESET}")
-        elif action.type == ActionType.ENTER_TEXT_AND_CLICK:
-            await enter_text_and_click(
-                text_selector=f"[mmid='{action.text_element_mmid}']",
-                text_to_enter=action.text_to_enter,
-                click_selector=f"[mmid='{action.click_element_mmid}']",
-                wait_before_click_execution=action.wait_before_click_execution or 2,
-            )
-            # await wait_for_navigation()
-            print(f"{CYAN}[DEBUG] Entered text and clicked element{RESET}")
-
+        # Get the new browser state after execution
         try:
             new_dom = await self.get_current_dom()
         except Exception as e:
@@ -143,8 +97,22 @@ class BrowserWorldModel(WorldModel[BrowserState, BrowserAction, str]):
             print(f"{RED}[DEBUG] Error getting URL after action: {e}{RESET}")
             new_url = "Error: Unable to retrieve URL"
 
-        print(f"{GREEN}[DEBUG] After action execution - New URL: {new_url}{RESET}")
-        return new_dom, new_url
+        new_completed_tasks = state.completed_tasks + [sub_task]
+        new_state = BrowserState(
+            dom=new_dom,
+            url=new_url,
+            objective=state.objective,
+            completed_tasks=new_completed_tasks,
+        )
+        print(f"{GREEN}[DEBUG] New state after step - URL: {new_url}{RESET}")
+        return new_state, {"execution_result": str(execution_result)}
+
+    async def is_terminal(self, state: BrowserState) -> bool:
+        terminal = await is_terminal(state, self.vision)
+        print(f"{CYAN}[DEBUG] is_terminal: {terminal}{RESET}")
+        return terminal
+
+
 
     async def get_current_dom(self) -> str:
         await wait_for_navigation()
@@ -159,7 +127,7 @@ class BrowserWorldModel(WorldModel[BrowserState, BrowserAction, str]):
         return url
 
 
-class BrowserMCTSSearchConfig(SearchConfig[BrowserState, BrowserAction, str]):
+class BrowserMCTSSearchConfig(SearchConfig[BrowserState, str, str]):
     def __init__(self, actor: BaseAgent, critic: BaseAgent, vision: BaseAgent) -> None:
         super().__init__()
         self.actor = actor
@@ -167,8 +135,8 @@ class BrowserMCTSSearchConfig(SearchConfig[BrowserState, BrowserAction, str]):
         self.vision = vision
         print(f"{BLUE}[DEBUG] BrowserMCTSSearchConfig initialized{RESET}")
 
-    async def get_actions(self, state: BrowserState) -> List[BrowserAction]:
-        print(f"{YELLOW}[DEBUG] Getting actions for current state{RESET}")
+    async def get_actions(self, state: BrowserState) -> List[str]:
+        print(f"{YELLOW}[DEBUG] Getting actions (sub-tasks) for current state{RESET}")
         actor_input: AgentQActorInput = AgentQActorInput(
             objective=state.objective,
             completed_tasks=state.completed_tasks,
@@ -177,18 +145,16 @@ class BrowserMCTSSearchConfig(SearchConfig[BrowserState, BrowserAction, str]):
         )
         actor_output: AgentQActorOutput = await self.actor.run(actor_input)
 
-        proposed_tasks_with_actions: List[TaskWithActions] = actor_output.proposed_tasks
-        print(
-            f"{CYAN}[DEBUG] Number of proposed tasks: {len(proposed_tasks_with_actions)}{RESET}"
-        )
+        proposed_tasks: List[str] = actor_output.proposed_tasks
+        print(f"{CYAN}[DEBUG] Number of proposed sub-tasks: {len(proposed_tasks)}{RESET}")
 
-        ranked_actions = await self._rank_actions(state, proposed_tasks_with_actions)
-        print(f"{CYAN}[DEBUG] Number of sorted actions: {len(ranked_actions)}{RESET}")
+        ranked_tasks = await self._rank_actions(state, proposed_tasks)
+        print(f"{CYAN}[DEBUG] Number of sorted sub-tasks: {len(ranked_tasks)}{RESET}")
 
-        return ranked_actions
+        return ranked_tasks
 
     async def reward(
-        self, state: BrowserState, action: BrowserAction, **kwargs
+        self, state: BrowserState, action: str, **kwargs
     ) -> Tuple[float, dict]:
         terminal_state = await is_terminal(state=state, vision=self.vision)
         if terminal_state:
@@ -199,50 +165,44 @@ class BrowserMCTSSearchConfig(SearchConfig[BrowserState, BrowserAction, str]):
             return -0.01, {}
 
     def fast_reward(
-        self, state: BrowserState, action: BrowserAction
+        self, state: BrowserState, action: str
     ) -> tuple[float, dict]:
-        return action.rank, {}
+        return 0.1, {}  # Simple placeholder for string-based actions
 
     async def _rank_actions(
-        self, state: BrowserState, tasks: List[TaskWithActions]
-    ) -> List[BrowserAction]:
-        ranked_actions = []
+        self, state: BrowserState, tasks: List[str]
+    ) -> List[str]:
+        if not tasks:
+            return []
+            
+        # Sort using the critic
         remaining_tasks = tasks.copy()
-        total_tasks = len(remaining_tasks)
+        sorted_tasks = []
 
-        print(f"{GREEN}[INFO] Sorting task via Critic now...")
-        for iteration in range(total_tasks):
-            if not remaining_tasks:
-                break
-
-            critic_input = AgentQCriticInput(
+        print(f"{GREEN}[INFO] Sorting tasks via Critic now...{RESET}")
+        while remaining_tasks:
+            critic_input: AgentQCriticInput = AgentQCriticInput(
                 objective=state.objective,
                 completed_tasks=state.completed_tasks,
                 tasks_for_eval=remaining_tasks,
                 current_page_url=state.url,
                 current_page_dom=state.dom,
             )
-
             critic_output: AgentQCriticOutput = await self.critic.run(critic_input)
-            top_task = critic_output.top_task
+            top_task: str = critic_output.top_task
 
-            if top_task and top_task.actions_to_be_performed:
-                rank = 1.0 / (iteration + 1)  # Higher rank for earlier iterations
-                ranked_actions.append(
-                    BrowserAction(task_with_action=top_task, rank=rank)
-                )
-
-                # Remove the top task from remaining tasks
-                remaining_tasks = [
-                    task for task in remaining_tasks if task.id != top_task.id
-                ]
+            # Find the task in our remaining tasks
+            if top_task and top_task in remaining_tasks:
+                sorted_tasks.append(top_task)
+                remaining_tasks.remove(top_task)
             else:
-                print(
-                    f"{MAGENTA}[DEBUG] Warning: No valid top task found in iteration {iteration}. Skipping.{RESET}"
-                )
+                # If the critic picked something we can't find, just take the first remaining task
+                if remaining_tasks:
+                    sorted_tasks.append(remaining_tasks[0])
+                    remaining_tasks.remove(remaining_tasks[0])
 
-        print(f"{CYAN}[DEBUG] Sorted actions.")
-        return ranked_actions
+        print(f"{CYAN}[DEBUG] Sorted tasks: {sorted_tasks}{RESET}")
+        return sorted_tasks
 
 
 async def is_terminal(state: BrowserState, vision: BaseAgent) -> bool:
@@ -256,7 +216,7 @@ async def is_terminal(state: BrowserState, vision: BaseAgent) -> bool:
     return vision_output.is_terminal
 
 
-class BrowserMCTSWrapper(Reasoner[BrowserState, BrowserAction, str]):
+class BrowserMCTSWrapper(Reasoner[BrowserState, str, str]):
     def __init__(
         self,
         objective: str,

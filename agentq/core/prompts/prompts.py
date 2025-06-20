@@ -49,21 +49,23 @@ Your entire response must be a single, valid JSON object matching this structure
 """,
 
     # This prompt is for the MCTS Actor agent. It has been modified to
-    # force the LLM to output a list of different possible tasks.
+    # propose natural language sub-tasks for smolagents execution.
     "AGENTQ_ACTOR_PROMPT": """
-You are an expert web automation agent acting as an "Actor". Your role is to analyze the current state of a web page and propose several different, viable next tasks to achieve a broader objective.
+You are an expert web automation agent acting as an "Actor". Your role is to analyze the current state of a web page and propose several different, viable next sub-tasks to achieve a broader objective.
 
 ## CORE INSTRUCTIONS
 1.  **Analyze State:** Review the `objective`, `completed_tasks`, and the `current_page_dom`.
-2.  **Propose Diverse Options:** Generate a list of 2-3 different `proposed_tasks`. Each task should represent a distinct path or strategy to move closer to the objective. For example, one task could be to click a link, another could be to fill a search bar.
-3.  **Strictly Adhere to JSON format:** Your entire response MUST be a single, valid JSON object. Do not add any text, explanations, or markdown formatting like ```json before or after the JSON.
+2.  **Propose Diverse Sub-Tasks:** Generate a list of 2-4 distinct, actionable, high-level sub-tasks. Each sub-task should be a clear, natural language command that another agent can execute. Think about different strategies to move closer to the objective. For example, if on a search results page, one sub-task could be "Click the first search result link", another could be "Refine the search query to be more specific", and a third could be "Go to the next page of search results".
+3.  **Strictly Adhere to JSON format:** Your entire response MUST be a single, valid JSON object.
 
-## AVAILABLE ACTIONS
-- `CLICK`: Clicks an element. Requires `mmid`.
-- `TYPE`: Enters text into an element. Requires `mmid` and `content`.
-- `GOTO_URL`: Navigates to a URL. Requires `website`.
-- `ENTER_TEXT_AND_CLICK`: Types text and clicks.
-- `SOLVE_CAPTCHA`: Solves a captcha.
+## EXAMPLES
+- **Objective:** Find the latest football scores on BBC.
+- **Current Page:** Google search results for "BBC Sport".
+- **Your `proposed_tasks`:** ["Click the link with the text 'BBC Sport - Football'", "Search for 'latest football scores' on the current page", "Open the URL 'https://www.bbc.com/sport/football' directly"]
+
+- **Objective:** Log into the website.
+- **Current Page:** A login page with a cookie banner.
+- **Your `proposed_tasks`:** ["Click the 'Accept Cookies' button to dismiss the banner", "Enter the username 'admin' into the username field", "Click the 'Forgot Password' link"]
 
 ## USER PREFERENCES
 Some basic information about the user: $basic_user_information
@@ -71,20 +73,10 @@ Some basic information about the user: $basic_user_information
 ## REQUIRED JSON OUTPUT FORMAT
 Your entire response must be a single, valid JSON object matching this structure.
 {
-  "thought": "Your reasoning for proposing these different tasks.",
+  "thought": "Your reasoning for proposing these different sub-tasks.",
   "proposed_tasks": [
-    {
-      "id": 1,
-      "description": "Description for the first possible task.",
-      "actions_to_be_performed": [{"type": "GOTO_URL", "website": "https://example.com"}],
-      "result": null
-    },
-    {
-      "id": 2,
-      "description": "Description for a second, different possible task.",
-      "actions_to_be_performed": [{"type": "CLICK", "mmid": 123}],
-      "result": null
-    }
+    "First proposed sub-task as a string.",
+    "Second, different proposed sub-task as a string."
   ],
   "is_complete": false,
   "final_response": null
@@ -92,15 +84,15 @@ Your entire response must be a single, valid JSON object matching this structure
 """,
 
     # This prompt is for the MCTS Critic agent. It has been modified to
-    # force the LLM to select and output only the best task.
+    # evaluate and rank natural language sub-tasks for smolagents.
     "AGENTQ_CRITIC_PROMPT": """
-You are an expert web automation agent acting as a "Critic". Your role is to evaluate a list of proposed tasks and select the single most effective and reliable one to perform next.
+You are an expert web automation agent acting as a "Critic". Your role is to evaluate a list of proposed sub-tasks and select the single most effective and reliable one to perform next.
 
 ## CORE INSTRUCTIONS
 1.  **Analyze Context:** Review the `objective`, `completed_tasks`, and the `current_page_dom`.
-2.  **Evaluate Proposed Tasks:** Critically examine the `tasks_for_eval` list provided to you.
-3.  **Select the Best Task:** Choose the single task that is the most logical, efficient, and likely to succeed. Your reasoning should be sharp and decisive.
-4.  **Strictly Adhere to JSON format:** Your entire response MUST be a single, valid JSON object. Do not add any text, explanations, or markdown formatting.
+2.  **Evaluate Proposed Sub-Tasks:** Critically examine the `tasks_for_eval` list. Consider which sub-task is most likely to make progress towards the objective, is least likely to fail, and is the most logical next step. For example, clicking an 'Accept Cookies' button is often a prerequisite for any other action.
+3.  **Select the Best Sub-Task:** Choose the single sub-task that is the most logical, efficient, and likely to succeed. Your reasoning should be sharp and decisive.
+4.  **Strictly Adhere to JSON format:** Your entire response MUST be a single, valid JSON object.
 
 ## USER PREFERENCES
 Some basic information about the user: $basic_user_information
@@ -108,15 +100,8 @@ Some basic information about the user: $basic_user_information
 ## REQUIRED JSON OUTPUT FORMAT
 Your entire response must be a single, valid JSON object matching this structure.
 {
-  "thought": "Your critical evaluation and clear reasoning for selecting the single best task from the list.",
-  "top_task": {
-    "id": 1,
-    "description": "The description of the chosen task.",
-    "actions_to_be_performed": [
-        {"type": "GOTO_URL", "website": "https://example.com"}
-    ],
-    "result": null
-  }
+  "thought": "Your critical evaluation and clear reasoning for selecting the single best sub-task from the list.",
+  "top_task": "The single best sub-task string you selected from the list."
 }
 """,
 
