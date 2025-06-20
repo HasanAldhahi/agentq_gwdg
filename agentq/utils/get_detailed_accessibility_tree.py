@@ -36,22 +36,32 @@ async def __inject_attributes(page: Page):
     'aria-keyshortcuts' is choosen because it is not widely used aria attribute.
     """
 
-    last_mmid = await page.evaluate("""() => {
-        const allElements = document.querySelectorAll('*');
-        let id = 0;
-        allElements.forEach(element => {
-            const origAriaAttribute = element.getAttribute('aria-keyshortcuts');
-            const mmid = `${++id}`;
-            element.setAttribute('mmid', mmid);
-            element.setAttribute('aria-keyshortcuts', mmid);
-            //console.log(`Injected 'mmid'into element with tag: ${element.tagName} and mmid: ${mmid}`);
-            if (origAriaAttribute) {
-                element.setAttribute('orig-aria-keyshortcuts', origAriaAttribute);
-            }
-        });
-        return id;
-    }""")
-    logger.debug(f"Added MMID into {last_mmid} elements")
+    try:
+        last_mmid = await page.evaluate("""() => {
+            const allElements = document.querySelectorAll('*');
+            let id = 0;
+            allElements.forEach(element => {
+                const origAriaAttribute = element.getAttribute('aria-keyshortcuts');
+                const mmid = `${++id}`;
+                element.setAttribute('mmid', mmid);
+                element.setAttribute('aria-keyshortcuts', mmid);
+                //console.log(`Injected 'mmid'into element with tag: ${element.tagName} and mmid: ${mmid}`);
+                if (origAriaAttribute) {
+                    element.setAttribute('orig-aria-keyshortcuts', origAriaAttribute);
+                }
+            });
+            return id;
+        }""")
+        logger.debug(f"Added MMID into {last_mmid} elements")
+    except Exception as e:
+        if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+            logger.warning(f"Page navigation detected during MMID injection: {e}")
+            # Wait for navigation to complete and retry
+            await page.wait_for_load_state('domcontentloaded', timeout=5000)
+            return await __inject_attributes(page)
+        else:
+            logger.error(f"Failed to inject MMID attributes: {e}")
+            raise
 
 
 async def __fetch_dom_info(
@@ -268,17 +278,25 @@ async def __fetch_dom_info(
             """
 
             # Fetch attributes and possibly 'innerText' from the DOM element by 'mmid'
-            element_attributes = await page.evaluate(
-                js_code,
-                {
-                    "mmid": mmid,
-                    "attributes": attributes,
-                    "backup_attributes": backup_attributes,
-                    "should_fetch_inner_text": should_fetch_inner_text,
-                    "tags_to_ignore": tags_to_ignore,
-                    "ids_to_ignore": ids_to_ignore,
-                },
-            )
+            try:
+                element_attributes = await page.evaluate(
+                    js_code,
+                    {
+                        "mmid": mmid,
+                        "attributes": attributes,
+                        "backup_attributes": backup_attributes,
+                        "should_fetch_inner_text": should_fetch_inner_text,
+                        "tags_to_ignore": tags_to_ignore,
+                        "ids_to_ignore": ids_to_ignore,
+                    },
+                )
+            except Exception as e:
+                if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+                    logger.warning(f"Page navigation detected during element evaluation for mmid {mmid}: {e}")
+                    return None
+                else:
+                    logger.error(f"Failed to evaluate element attributes for mmid {mmid}: {e}")
+                    return None
 
             if "keyshortcuts" in node:
                 del node["keyshortcuts"]  # remove keyshortcuts since it is not needed
@@ -395,18 +413,24 @@ async def __cleanup_dom(page: Page):
     from 'orig-aria-keyshortcuts'.
     """
     logger.debug("Cleaning up the DOM's previous injections")
-    await page.evaluate("""() => {
-        const allElements = document.querySelectorAll('*[mmid]');
-        allElements.forEach(element => {
-            element.removeAttribute('aria-keyshortcuts');
-            const origAriaLabel = element.getAttribute('orig-aria-keyshortcuts');
-            if (origAriaLabel) {
-                element.setAttribute('aria-keyshortcuts', origAriaLabel);
-                element.removeAttribute('orig-aria-keyshortcuts');
-            }
-        });
-    }""")
-    logger.debug("DOM cleanup complete")
+    try:
+        await page.evaluate("""() => {
+            const allElements = document.querySelectorAll('*[mmid]');
+            allElements.forEach(element => {
+                element.removeAttribute('aria-keyshortcuts');
+                const origAriaLabel = element.getAttribute('orig-aria-keyshortcuts');
+                if (origAriaLabel) {
+                    element.setAttribute('aria-keyshortcuts', origAriaLabel);
+                    element.removeAttribute('orig-aria-keyshortcuts');
+                }
+            });
+        }""")
+        logger.debug("DOM cleanup complete")
+    except Exception as e:
+        if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+            logger.warning(f"Page navigation detected during DOM cleanup: {e}")
+        else:
+            logger.error(f"Failed to cleanup DOM attributes: {e}")
 
 
 def __prune_tree(
@@ -535,34 +559,50 @@ def __should_prune_node(node: Dict[str, Any], only_input_fields: bool):
 
 
 async def get_node_dom_element(page: Page, mmid: str):
-    return await page.evaluate(
-        """
-        (mmid) => {
-            return document.querySelector(`[mmid="${mmid}"]`);
-        }
-    """,
-        mmid,
-    )
+    try:
+        return await page.evaluate(
+            """
+            (mmid) => {
+                return document.querySelector(`[mmid="${mmid}"]`);
+            }
+        """,
+            mmid,
+        )
+    except Exception as e:
+        if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+            logger.warning(f"Page navigation detected while getting DOM element {mmid}: {e}")
+            return None
+        else:
+            logger.error(f"Failed to get DOM element {mmid}: {e}")
+            return None
 
 
 async def get_element_attributes(page: Page, mmid: str, attributes: List[str]):
-    return await page.evaluate(
-        """
-        (inputParams) => {
-            const mmid = inputParams.mmid;
-            const attributes = inputParams.attributes;
-            const element = document.querySelector(`[mmid="${mmid}"]`);
-            if (!element) return null;  // Return null if element is not found
+    try:
+        return await page.evaluate(
+            """
+            (inputParams) => {
+                const mmid = inputParams.mmid;
+                const attributes = inputParams.attributes;
+                const element = document.querySelector(`[mmid="${mmid}"]`);
+                if (!element) return null;  // Return null if element is not found
 
-            let attrs = {};
-            for (let attr of attributes) {
-                attrs[attr] = element.getAttribute(attr);
+                let attrs = {};
+                for (let attr of attributes) {
+                    attrs[attr] = element.getAttribute(attr);
+                }
+                return attrs;
             }
-            return attrs;
-        }
-    """,
-        {"mmid": mmid, "attributes": attributes},
-    )
+        """,
+            {"mmid": mmid, "attributes": attributes},
+        )
+    except Exception as e:
+        if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+            logger.warning(f"Page navigation detected while getting element attributes for {mmid}: {e}")
+            return None
+        else:
+            logger.error(f"Failed to get element attributes for {mmid}: {e}")
+            return None
 
 
 async def get_dom_with_accessibility_info() -> (

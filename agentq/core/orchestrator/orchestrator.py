@@ -101,7 +101,7 @@ class Orchestrator:
 
             print(f"Executing command {self.memory.objective}")
             while self.memory.current_state != State.COMPLETED:
-                await loop.create_task(self._handle_state())
+                await self._handle_state()
             self._print_final_response()
 
             if self.eval_mode:
@@ -192,9 +192,10 @@ class Orchestrator:
                 # Wait for the page to load
                 # await page.wait_for_load_state("networkidle", timeout=10000)
 
-                # Get DOM and URL
+                # Get DOM, URL, and screenshot
                 dom = await get_dom_with_content_type(content_type="all_fields")
                 url = await geturl()
+                screenshot = await get_screenshot()
 
                 input_data = AgentQBaseInput(
                     objective=self.memory.objective,
@@ -204,7 +205,7 @@ class Orchestrator:
                 )
 
                 output: AgentQBaseOutput = await agent.run(
-                    input_data, session_id=self.session_id
+                    input_data, screenshot=screenshot, session_id=self.session_id
                 )
 
                 await self._update_memory_from_agentq_base(output)

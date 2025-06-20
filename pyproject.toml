@@ -29,6 +29,7 @@ langsmith = "^0.1.104"
 instructor = "^1.4.0"
 flask = "^3.0.3"
 numpy = "^2.1.0"
+python-dotenv = "^1.0.1"
 
 
 [build-system]

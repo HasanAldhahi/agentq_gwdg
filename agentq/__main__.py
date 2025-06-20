@@ -1,7 +1,9 @@
 import asyncio
+import sys
 
 from playwright.async_api import Page
 
+import agentq.config
 from agentq.core.agent.agentq import AgentQ
 from agentq.core.agent.agentq_actor import AgentQActor
 from agentq.core.agent.agentq_critic import AgentQCritic
@@ -42,8 +44,20 @@ def run_agent_sync(command):
 
 
 async def main():
-    orchestrator = Orchestrator(state_to_agent_map=state_to_agent_map)
+    orchestrator = Orchestrator(state_to_agent_map=state_to_agent_map, eval_mode=True)
     await orchestrator.start()
+
+    if len(sys.argv) > 1:
+        command = " ".join(sys.argv[1:])
+        print(f"Executing command: {command}")
+        result = await orchestrator.execute_command(command)
+        print(result)
+        # You might want to add a way to gracefully shut down here
+        # For example, await orchestrator.stop()
+    else:
+        print("No command provided. The browser will remain open.")
+        # Keep the event loop running to keep the browser open
+        await asyncio.Event().wait()
 
 
 if __name__ == "__main__":

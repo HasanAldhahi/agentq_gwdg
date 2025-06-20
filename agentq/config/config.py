@@ -1,5 +1,14 @@
 # config.py at the project source code root
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# API configuration
+API_KEY = os.environ.get("OPENAI_API_KEY")
+BASE_URL = "https://chat-ai.academiccloud.de/v1"
+MODEL = "meta-llama-3.1-8b-instruct"
 
 # Get the absolute path of the current file (config.py)
 CURRENT_FILE_PATH = os.path.abspath(__file__)
